@@ -1,18 +1,57 @@
 {% extends "layout.html" %}
 
 {% block body %}
-  <h1>Add a user</h1>
-  <form action="{{ url_for('user') }}" method="post">
-    <label for="name">Name</label>
-    <input id="name" type="text" name="name" placeholder="John Smith" required />
-    <label for="email">Email</label>
-    <input id="email" type="email" name="email" placeholder="j.smith@example.com" required />
-    <button type="submit">Save</button>
-  </form>
-  <h2>List of users</h2>
-  {% for u in users %}
-    <p>{{ u.name }} -- {{ u.email }}</p>
-  {% else %}
-    <p>No users found in the db. You can make some above.</p>
-  {% endfor %}
+  <h1>User Management System</h1>
+  
+  {% if error %}
+    <div class="error-message">
+      <strong>Error:</strong> {{ error }}
+    </div>
+  {% endif %}
+  
+  <div class="form-section">
+    <h2>Add a new user</h2>
+    <form action="{{ url_for('create_user_web') }}" method="post">
+      <div class="form-group">
+        <label for="name">Name</label>
+        <input id="name" type="text" name="name" placeholder="John Smith" required />
+      </div>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input id="email" type="email" name="email" placeholder="j.smith@example.com" required />
+      </div>
+      <button type="submit">Save User</button>
+    </form>
+  </div>
+  
+  <div class="users-section">
+    <h2>Registered Users ({{ users|length }} total)</h2>
+    {% if users %}
+      <div class="users-list">
+        {% for u in users %}
+          <div class="user-card">
+            <div class="user-info">
+              <strong>{{ u.name }}</strong>
+              <span class="email">{{ u.email }}</span>
+            </div>
+            <div class="user-meta">
+              <small>Created: {{ u.created_at.strftime('%Y-%m-%d %H:%M') if u.created_at else 'Unknown' }}</small>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="no-users">No users found in the database. You can add some above.</p>
+    {% endif %}
+  </div>
+  
+  <div class="api-info">
+    <h3>API Endpoints</h3>
+    <p>This application also provides REST API endpoints:</p>
+    <ul>
+      <li><code>GET /api/users</code> - Get all users as JSON</li>
+      <li><code>POST /api/users</code> - Create a new user</li>
+      <li><code>GET /health</code> - Health check</li>
+    </ul>
+  </div>
 {% endblock %}
