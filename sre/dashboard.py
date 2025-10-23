@@ -469,7 +469,7 @@ SRE_DASHBOARD_TEMPLATE = """
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 SRE Dashboard</h1>
+            <h1>SRE Dashboard</h1>
             <p>Flask SRE Challenge - Production Monitoring</p>
             <button class="refresh-btn" onclick="refreshDashboard()">Refresh</button>
         </div>

@@ -14,6 +14,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         gcc \
         libpq-dev \
+        python3-dev \
+        linux-headers-generic \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -27,12 +29,12 @@ COPY . .
 RUN adduser --disabled-password --gecos '' appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Expose port
-EXPOSE 5000
+# Expose ports
+EXPOSE 5000 5001
 
-# Health check
+# Health check (use monitoring app for health checks)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5000/health || exit 1
+    CMD curl -f http://localhost:5001/health || exit 1
 
-# Run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "120", "app:app"]
+# Run both applications
+CMD ["./start_apps.sh"]

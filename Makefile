@@ -58,7 +58,7 @@ terraform-destroy: ## Destroy Terraform resources
 	cd terraform && terraform destroy
 
 local-dev: ## Start local development server
-	python app.py
+	python main_app.py
 
 check-health: ## Check application health
 	curl -f http://localhost:5000/health || echo "Health check failed"

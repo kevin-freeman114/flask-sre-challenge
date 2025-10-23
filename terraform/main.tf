@@ -38,6 +38,19 @@ variable "domain_name" {
   default     = ""
 }
 
+variable "db_password" {
+  description = "Database password"
+  type        = string
+  sensitive   = true
+  default     = "password"
+}
+
+variable "allowed_cidr_blocks" {
+  description = "CIDR blocks allowed to access the application"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
 # Data sources
 data "aws_availability_zones" "available" {
   state = "available"
@@ -213,6 +226,13 @@ resource "aws_security_group" "ecs" {
     security_groups = [aws_security_group.alb.id]
   }
 
+  ingress {
+    from_port       = 5001
+    to_port         = 5001
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -260,10 +280,11 @@ resource "aws_lb" "main" {
 }
 
 resource "aws_lb_target_group" "app" {
-  name     = "${var.app_name}-tg"
-  port     = 5000
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  name        = "${var.app_name}-tg"
+  port        = 5000
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
 
   health_check {
     enabled             = true
@@ -271,7 +292,7 @@ resource "aws_lb_target_group" "app" {
     interval            = 30
     matcher             = "200"
     path                = "/health"
-    port                = "traffic-port"
+    port                = "5001"
     protocol            = "HTTP"
     timeout             = 5
     unhealthy_threshold = 2
@@ -279,6 +300,31 @@ resource "aws_lb_target_group" "app" {
 
   tags = {
     Name        = "${var.app_name}-tg"
+    Environment = var.environment
+  }
+}
+
+resource "aws_lb_target_group" "monitoring" {
+  name        = "${var.app_name}-mon-tg"
+  port        = 5001
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
+
+  health_check {
+    enabled             = true
+    healthy_threshold   = 2
+    interval            = 30
+    matcher             = "200"
+    path                = "/health"
+    port                = "5001"
+    protocol            = "HTTP"
+    timeout             = 5
+    unhealthy_threshold = 2
+  }
+
+  tags = {
+    Name        = "${var.app_name}-mon-tg"
     Environment = var.environment
   }
 }
@@ -291,6 +337,39 @@ resource "aws_lb_listener" "web" {
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+# ALB Listener Rules for monitoring endpoints
+resource "aws_lb_listener_rule" "health" {
+  listener_arn = aws_lb_listener.web.arn
+  priority     = 100
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.monitoring.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/health*"]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "monitoring" {
+  listener_arn = aws_lb_listener.web.arn
+  priority     = 101
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.monitoring.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/monitoring*", "/metrics*"]
+    }
   }
 }
 
@@ -309,7 +388,7 @@ resource "aws_db_instance" "main" {
   identifier = "${var.app_name}-db"
 
   engine         = "postgres"
-  engine_version = "15.4"
+  engine_version = "13.22"
   instance_class = "db.t3.micro"
 
   allocated_storage     = 20
@@ -319,7 +398,7 @@ resource "aws_db_instance" "main" {
 
   db_name  = "flask_app"
   username = "postgres"
-  password = "changeme123!" # In production, use AWS Secrets Manager
+  password = var.db_password
 
   vpc_security_group_ids = [aws_security_group.rds.id]
   db_subnet_group_name   = aws_db_subnet_group.main.name
@@ -372,13 +451,18 @@ resource "aws_ecs_task_definition" "app" {
           containerPort = 5000
           hostPort      = 5000
           protocol      = "tcp"
+        },
+        {
+          containerPort = 5001
+          hostPort      = 5001
+          protocol      = "tcp"
         }
       ]
 
       environment = [
         {
           name  = "DATABASE_URL"
-          value = "postgresql://postgres:changeme123!@${aws_db_instance.main.endpoint}/flask_app"
+          value = "postgresql://postgres:${var.db_password}@${aws_db_instance.main.endpoint}/flask_app"
         },
         {
           name  = "FLASK_ENV"
@@ -429,6 +513,12 @@ resource "aws_ecs_service" "app" {
     target_group_arn = aws_lb_target_group.app.arn
     container_name   = "${var.app_name}-container"
     container_port   = 5000
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.monitoring.arn
+    container_name   = "${var.app_name}-container"
+    container_port   = 5001
   }
 
   depends_on = [aws_lb_listener.web]
@@ -503,6 +593,10 @@ resource "aws_ecr_repository" "app" {
     Name        = "${var.app_name}-ecr"
     Environment = var.environment
   }
+
+  lifecycle {
+    prevent_destroy = false
+  }
 }
 
 # Outputs
@@ -525,4 +619,29 @@ output "rds_endpoint" {
 output "ecr_repository_url" {
   description = "ECR repository URL"
   value       = aws_ecr_repository.app.repository_url
+}
+
+output "vpc_id" {
+  description = "VPC ID"
+  value       = aws_vpc.main.id
+}
+
+output "private_subnet_ids" {
+  description = "Private subnet IDs"
+  value       = aws_subnet.private[*].id
+}
+
+output "public_subnet_ids" {
+  description = "Public subnet IDs"
+  value       = aws_subnet.public[*].id
+}
+
+output "ecs_cluster_name" {
+  description = "ECS cluster name"
+  value       = aws_ecs_cluster.main.name
+}
+
+output "ecs_service_name" {
+  description = "ECS service name"
+  value       = aws_ecs_service.app.name
 }
