@@ -1,6 +1,8 @@
 import os
 import logging
-from datetime import datetime
+import time
+from datetime import datetime, timezone
+from sqlalchemy import text
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError
@@ -32,7 +34,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), nullable=False, unique=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     def __init__(self, name, email):
         self.name = name
@@ -119,7 +121,7 @@ def create_user():
         
         # Check if email already exists
         if User.query.filter_by(email=data['email']).first():
-            return jsonify({'error': 'Email already exists'}), 400
+            return jsonify({'error': 'Email already exists'}), 409
         
         user = User(name=data['name'], email=data['email'])
         db.session.add(user)
@@ -142,6 +144,42 @@ def not_found(error):
 def internal_error(error):
     db.session.rollback()
     return jsonify({'error': 'Internal server error'}), 500
+
+# Health check endpoints
+@app.route('/health', methods=['GET'])
+def health_check():
+    start_time = time.time()
+    status_code = 200
+    try:
+        db.session.execute(text('SELECT 1'))
+        response_time = (time.time() - start_time) * 1000
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'database': 'connected',
+            'response_time_ms': response_time
+        }), status_code
+    except Exception as e:
+        response_time = (time.time() - start_time) * 1000
+        return jsonify({
+            'status': 'unhealthy',
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'database': 'disconnected',
+            'error': str(e),
+            'response_time_ms': response_time
+        }), 503
+
+@app.route('/health/ready', methods=['GET'])
+def readiness_check():
+    try:
+        db.session.execute(text('SELECT 1'))
+        return jsonify({'status': 'ready'}), 200
+    except Exception as e:
+        return jsonify({'status': 'not ready', 'error': str(e)}), 503
+
+@app.route('/health/live', methods=['GET'])
+def liveness_check():
+    return jsonify({'status': 'alive'}), 200
 
 # Initialize database tables
 def init_db():
